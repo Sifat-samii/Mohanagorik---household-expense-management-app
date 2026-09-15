@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
+.icon-link{border:0;background:transparent;cursor:pointer}
+
 :root {
   --background:#f5f7fb; --foreground:#15203b; --card:#ffffff; --card-foreground:#15203b;
   --popover:#ffffff; --popover-foreground:#15203b; --primary:#172554; --primary-foreground:#ffffff;

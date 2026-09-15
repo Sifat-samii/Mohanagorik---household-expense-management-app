@@ -15,6 +15,13 @@
       "when": 1789433770106,
       "tag": "0001_curly_ulik",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789502975894,
+      "tag": "0002_bizarre_jackpot",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
 import { NextRequest, NextResponse } from "next/server";
+import { guardMutationOrigin, guardRateLimit, logServerError } from "@/lib/http";
+import { validateUpload } from "@/lib/uploads";
 import { getGoogleUser } from "../../google-auth";
 
 type AvatarMember = { id:number; household_id:string; avatar_key:string|null };
@@ -11,33 +13,42 @@ async function currentMember(householdId:string, userId:string) {
 }
 
 export async function POST(request:NextRequest) {
-  const user = await getGoogleUser();
-  if (!user) return NextResponse.json({ error:"Sign in required" }, { status:401 });
-  if (!env.DB || !env.BUCKET) return NextResponse.json({ error:"Avatar storage unavailable" }, { status:503 });
+  try {
+    const originError = guardMutationOrigin(request);
+    if (originError) return originError;
+    const user = await getGoogleUser();
+    if (!user) return NextResponse.json({ error:"Sign in required" }, { status:401 });
+    if (!env.DB || !env.BUCKET) return NextResponse.json({ error:"Avatar storage unavailable" }, { status:503 });
+    const rateLimitError = await guardRateLimit(request, user.userId, "avatar-upload");
+    if (rateLimitError) return rateLimitError;
 
-  const form = await request.formData();
-  const householdId = String(form.get("householdId") ?? "");
-  const file = form.get("file");
-  const member = await currentMember(householdId, user.userId);
-  if (!member || !(file instanceof File)) return NextResponse.json({ error:"Invalid profile photo" }, { status:400 });
+    const form = await request.formData();
+    const householdId = String(form.get("householdId") ?? "").slice(0, 80);
+    const file = form.get("file");
+    const member = await currentMember(householdId, user.userId);
+    if (!member || !(file instanceof File)) return NextResponse.json({ error:"Invalid profile photo" }, { status:400 });
 
-  const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-  if (file.size < 1 || file.size > 5 * 1024 * 1024 || !allowedTypes.has(file.type)) {
-    return NextResponse.json({ error:"Use a JPG, PNG, WebP, or GIF under 5 MB" }, { status:400 });
+    const upload = await validateUpload(file, ["jpeg", "png", "webp", "gif"], 5 * 1024 * 1024);
+    if (!upload) return NextResponse.json({ error:"Use a genuine JPG, PNG, WebP, or GIF under 5 MB" }, { status:400 });
+
+    const key = `${householdId}/avatars/${member.id}-${crypto.randomUUID()}.${upload.extension}`;
+    await env.BUCKET.put(key, upload.buffer, { httpMetadata:{ contentType:upload.contentType } });
+    await env.DB.prepare(`UPDATE household_members SET avatar_key = ?, avatar_choice = 'photo'
+      WHERE id = ? AND user_id = ?`).bind(key, member.id, user.userId).run();
+    if (member.avatar_key) await env.BUCKET.delete(member.avatar_key);
+    const response = NextResponse.json({ ok:true });
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  } catch (error) {
+    logServerError(request, error, "upload-avatar");
+    return NextResponse.json({ error:"Profile photo upload failed" }, { status:500 });
   }
-
-  const extension = file.type === "image/jpeg" ? "jpg" : file.type.split("/")[1];
-  const key = `${householdId}/avatars/${member.id}-${crypto.randomUUID()}.${extension}`;
-  await env.BUCKET.put(key, await file.arrayBuffer(), { httpMetadata:{ contentType:file.type } });
-  await env.DB.prepare(`UPDATE household_members SET avatar_key = ?, avatar_choice = 'photo'
-    WHERE id = ? AND user_id = ?`).bind(key, member.id, user.userId).run();
-  if (member.avatar_key) await env.BUCKET.delete(member.avatar_key);
-  return NextResponse.json({ ok:true });
 }
 
 export async function GET(request:NextRequest) {
   const user = await getGoogleUser();
-  if (!user || !env.DB || !env.BUCKET) return new Response("Not authorized", { status:401 });
+  if (!user) return new Response("Not authorized", { status:401 });
+  if (!env.DB || !env.BUCKET) return new Response("Avatar storage unavailable", { status:503 });
   const memberId = Number(request.nextUrl.searchParams.get("memberId"));
   if (!Number.isInteger(memberId)) return new Response("Avatar not found", { status:404 });
 
@@ -50,6 +61,10 @@ export async function GET(request:NextRequest) {
   if (!object) return new Response("Avatar not found", { status:404 });
   const headers = new Headers();
   object.writeHttpMetadata(headers);
+  const allowedContentTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+  if (!allowedContentTypes.has(headers.get("content-type") ?? "")) return new Response("Avatar not found", { status:404 });
   headers.set("Cache-Control", "private, max-age=300");
+  headers.set("Content-Security-Policy", "default-src 'none'; sandbox");
+  headers.set("X-Content-Type-Options", "nosniff");
   return new Response(object.body, { headers });
 }

@@ -1,12 +1,12 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const profiles = sqliteTable("profiles", {
   userId: text("user_id").primaryKey(),
   email: text("email").notNull(),
   displayName: text("display_name").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [index("profiles_email_idx").on(table.email)]);
 
 export const households = sqliteTable("households", {
   id: text("id").primaryKey(),
@@ -27,7 +27,11 @@ export const householdMembers = sqliteTable("household_members", {
   avatarKey: text("avatar_key"),
   status: text("status").notNull().default("active"),
   joinedAt: text("joined_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-}, (table) => [uniqueIndex("member_household_user_unique").on(table.householdId, table.userId)]);
+}, (table) => [
+  uniqueIndex("member_household_user_unique").on(table.householdId, table.userId),
+  index("members_user_status_idx").on(table.userId, table.status),
+  index("members_household_status_idx").on(table.householdId, table.status),
+]);
 
 export const expenses = sqliteTable("expenses", {
   id: text("id").primaryKey(),
@@ -43,14 +47,20 @@ export const expenses = sqliteTable("expenses", {
   status: text("status").notNull().default("active"),
   createdByUserId: text("created_by_user_id").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [
+  index("expenses_household_status_date_idx").on(table.householdId, table.status, table.expenseDate),
+  index("expenses_payer_idx").on(table.paidByMemberId),
+]);
 
 export const expenseSplits = sqliteTable("expense_splits", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   expenseId: text("expense_id").notNull(),
   memberId: integer("member_id").notNull(),
   shareCents: integer("share_cents").notNull(),
-}, (table) => [uniqueIndex("split_expense_member_unique").on(table.expenseId, table.memberId)]);
+}, (table) => [
+  uniqueIndex("split_expense_member_unique").on(table.expenseId, table.memberId),
+  index("splits_member_idx").on(table.memberId),
+]);
 
 export const settlements = sqliteTable("settlements", {
   id: text("id").primaryKey(),
@@ -62,7 +72,11 @@ export const settlements = sqliteTable("settlements", {
   notes: text("notes").notNull().default(""),
   createdByUserId: text("created_by_user_id").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [
+  index("settlements_household_date_idx").on(table.householdId, table.settlementDate),
+  index("settlements_from_idx").on(table.fromMemberId),
+  index("settlements_to_idx").on(table.toMemberId),
+]);
 
 export const recurringExpenses = sqliteTable("recurring_expenses", {
   id: text("id").primaryKey(),
@@ -78,4 +92,4 @@ export const recurringExpenses = sqliteTable("recurring_expenses", {
   lastPostedAt: text("last_posted_at"),
   createdByUserId: text("created_by_user_id").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [index("recurring_household_active_due_idx").on(table.householdId, table.active, table.nextDueDate)]);
