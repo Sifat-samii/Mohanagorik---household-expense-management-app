@@ -31,7 +31,7 @@ async function householdPayload(householdId: string, userId: string, selectedMon
   const member = await membership(householdId, userId);
   if (!member) throw new Error("Household access denied");
 
-  const [home, members, expenses, monthlyExpenses, splits, settlements, recurring, paidTotals, owedTotals, settlementTotals, monthlyPaidTotals] = await Promise.all([
+  const [home, members, expenses, monthlyExpenses, splits, settlements, recurring, paidTotals, owedTotals, settlementTotals, monthlyPaidTotals, monthlySettlementPayments] = await Promise.all([
     db.prepare(`SELECT id, name, currency, invite_code, owner_id FROM households WHERE id = ?`).bind(householdId).first<Row>(),
     db.prepare(`SELECT id, user_id, display_name, role, joined_at FROM household_members WHERE household_id = ? AND status = 'active' ORDER BY joined_at`).bind(householdId).all<Row>(),
     db.prepare(`SELECT e.id, e.description, e.category, e.amount_cents, e.paid_by_member_id, e.expense_date,
@@ -62,6 +62,8 @@ async function householdPayload(householdId: string, userId: string, selectedMon
     db.prepare(`SELECT paid_by_member_id AS member_id, SUM(amount_cents) AS amount_cents FROM expenses
       WHERE household_id = ? AND status = 'active' AND LOWER(category) <> 'rent' AND substr(expense_date, 1, 7) = ?
       GROUP BY paid_by_member_id`).bind(householdId, selectedMonth).all<Row>(),
+    db.prepare(`SELECT from_member_id AS member_id, SUM(amount_cents) AS amount_cents FROM settlements
+      WHERE household_id = ? AND substr(settlement_date, 1, 7) = ? GROUP BY from_member_id`).bind(householdId, selectedMonth).all<Row>(),
   ]);
 
   const balances = new Map<number, number>();
@@ -109,11 +111,14 @@ async function householdPayload(householdId: string, userId: string, selectedMon
     categoryMap.set(category, (categoryMap.get(category) ?? 0) + Number(e.amount_cents));
   }
   const categories = [...categoryMap].map(([name, amountCents]) => ({ name, amountCents })).sort((a, b) => b.amountCents - a.amountCents);
-  const paidByMember = new Map(monthlyPaidTotals.results.map((row) => [Number(row.member_id), Number(row.amount_cents)]));
+  const expensePaidByMember = new Map(monthlyPaidTotals.results.map((row) => [Number(row.member_id), Number(row.amount_cents)]));
+  const settlementPaidByMember = new Map(monthlySettlementPayments.results.map((row) => [Number(row.member_id), Number(row.amount_cents)]));
   const memberSpending = members.results.map((row) => ({
     memberId: Number(row.id),
     name: String(row.display_name),
-    amountCents: paidByMember.get(Number(row.id)) ?? 0,
+    expenseAmountCents: expensePaidByMember.get(Number(row.id)) ?? 0,
+    settlementAmountCents: settlementPaidByMember.get(Number(row.id)) ?? 0,
+    amountCents: (expensePaidByMember.get(Number(row.id)) ?? 0) + (settlementPaidByMember.get(Number(row.id)) ?? 0),
   })).sort((a, b) => b.amountCents - a.amountCents);
   const enrichedExpenses = expenses.results.map((e) => ({
     ...e,
