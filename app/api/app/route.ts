@@ -36,21 +36,21 @@ async function householdPayload(householdId: string, userId: string, selectedMon
     db.prepare(`SELECT e.id, e.description, e.category, e.amount_cents, e.paid_by_member_id, e.expense_date,
       e.split_type, e.notes, e.receipt_key, e.created_at, m.display_name AS payer_name
       FROM expenses e JOIN household_members m ON m.id = e.paid_by_member_id
-      WHERE e.household_id = ? AND e.status = 'active' ORDER BY e.expense_date DESC, e.created_at DESC LIMIT 250`).bind(householdId).all<Row>(),
+      WHERE e.household_id = ? AND e.status = 'active' AND LOWER(e.category) <> 'rent' ORDER BY e.expense_date DESC, e.created_at DESC LIMIT 250`).bind(householdId).all<Row>(),
     db.prepare(`SELECT e.id, e.description, e.category, e.amount_cents, e.paid_by_member_id, e.expense_date,
       e.split_type, e.notes, e.receipt_key, e.created_at, m.display_name AS payer_name
       FROM expenses e JOIN household_members m ON m.id = e.paid_by_member_id
-      WHERE e.household_id = ? AND e.status = 'active' AND substr(e.expense_date, 1, 7) = ?
+      WHERE e.household_id = ? AND e.status = 'active' AND LOWER(e.category) <> 'rent' AND substr(e.expense_date, 1, 7) = ?
       ORDER BY e.expense_date DESC, e.created_at DESC`).bind(householdId, selectedMonth).all<Row>(),
     db.prepare(`SELECT s.expense_id, s.member_id, s.share_cents FROM expense_splits s
-      JOIN expenses e ON e.id = s.expense_id WHERE e.household_id = ? AND e.status = 'active'`).bind(householdId).all<Row>(),
+      JOIN expenses e ON e.id = s.expense_id WHERE e.household_id = ? AND e.status = 'active' AND LOWER(e.category) <> 'rent'`).bind(householdId).all<Row>(),
     db.prepare(`SELECT s.id, s.from_member_id, s.to_member_id, s.amount_cents, s.settlement_date, s.notes,
       fm.display_name AS from_name, tm.display_name AS to_name
       FROM settlements s JOIN household_members fm ON fm.id = s.from_member_id
       JOIN household_members tm ON tm.id = s.to_member_id WHERE s.household_id = ?
       ORDER BY s.settlement_date DESC, s.created_at DESC LIMIT 150`).bind(householdId).all<Row>(),
     db.prepare(`SELECT r.*, m.display_name AS payer_name FROM recurring_expenses r
-      JOIN household_members m ON m.id = r.paid_by_member_id WHERE r.household_id = ? AND r.active = 1
+      JOIN household_members m ON m.id = r.paid_by_member_id WHERE r.household_id = ? AND r.active = 1 AND LOWER(r.category) <> 'rent'
       ORDER BY r.next_due_date`).bind(householdId).all<Row>(),
   ]);
 
@@ -174,10 +174,12 @@ export async function POST(request: NextRequest) {
 
     if (action === "create_expense") {
       const description = textValue(body.description, 100);
+      const category = textValue(body.category, 40) || "Other";
       const amountCents = money(body.amount);
       const paidByMemberId = Number(body.paidByMemberId);
       const participantIds = Array.isArray(body.participantIds) ? body.participantIds.map(Number).filter(Number.isInteger) : [];
       if (!description || amountCents < 1 || !paidByMemberId || participantIds.length < 1) return json({ error: "Complete the required expense fields" }, 400);
+      if (category.toLowerCase() === "rent") return json({ error: "Rent is not tracked in MohaNagorik" }, 400);
       const allowed = await db.prepare(`SELECT id FROM household_members WHERE household_id = ? AND status = 'active'`).bind(householdId).all<Row>();
       const allowedIds = new Set(allowed.results.map((r) => Number(r.id)));
       if (!allowedIds.has(paidByMemberId) || participantIds.some((id) => !allowedIds.has(id))) return json({ error: "Invalid household member" }, 400);
@@ -193,7 +195,7 @@ export async function POST(request: NextRequest) {
       const id = crypto.randomUUID();
       const statements = [
         db.prepare(`INSERT INTO expenses (id, household_id, description, category, amount_cents, paid_by_member_id, expense_date, split_type, notes, created_by_user_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, householdId, description, textValue(body.category, 40) || "Other", amountCents, paidByMemberId, textValue(body.expenseDate, 10), body.splitType === "custom" ? "custom" : "equal", textValue(body.notes, 500), user.userId),
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, householdId, description, category, amountCents, paidByMemberId, textValue(body.expenseDate, 10), body.splitType === "custom" ? "custom" : "equal", textValue(body.notes, 500), user.userId),
         ...shares.map((share) => db.prepare(`INSERT INTO expense_splits (expense_id, member_id, share_cents) VALUES (?, ?, ?)`).bind(id, share.memberId, share.shareCents)),
       ];
       await db.batch(statements);
@@ -213,19 +215,21 @@ export async function POST(request: NextRequest) {
 
     if (action === "create_recurring") {
       const participantIds = Array.isArray(body.participantIds) ? body.participantIds.map(Number).filter(Number.isInteger) : [];
+      const category = textValue(body.category, 40) || "Other";
       const amountCents = money(body.amount);
       if (!textValue(body.description) || amountCents < 1 || participantIds.length < 1) return json({ error: "Complete the recurring bill details" }, 400);
+      if (category.toLowerCase() === "rent") return json({ error: "Rent is not tracked in MohaNagorik" }, 400);
       const recurringMembers = await db.prepare(`SELECT id FROM household_members WHERE household_id = ? AND status = 'active'`).bind(householdId).all<Row>();
       const recurringAllowed = new Set(recurringMembers.results.map((r) => Number(r.id)));
       if (!recurringAllowed.has(Number(body.paidByMemberId)) || participantIds.some((id) => !recurringAllowed.has(id))) return json({ error: "Invalid household member" }, 400);
       await db.prepare(`INSERT INTO recurring_expenses (id, household_id, description, category, amount_cents, paid_by_member_id, cadence, next_due_date, participant_ids, created_by_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), householdId, textValue(body.description), textValue(body.category, 40), amountCents, Number(body.paidByMemberId), textValue(body.cadence, 20) || "monthly", textValue(body.nextDueDate, 10), JSON.stringify(participantIds), user.userId).run();
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), householdId, textValue(body.description), category, amountCents, Number(body.paidByMemberId), textValue(body.cadence, 20) || "monthly", textValue(body.nextDueDate, 10), JSON.stringify(participantIds), user.userId).run();
       return json({ ok: true });
     }
 
     if (action === "post_recurring") {
       const recurringId = textValue(body.recurringId, 80);
-      const recurring = await db.prepare(`SELECT * FROM recurring_expenses WHERE id = ? AND household_id = ? AND active = 1`).bind(recurringId, householdId).first<Row>();
+      const recurring = await db.prepare(`SELECT * FROM recurring_expenses WHERE id = ? AND household_id = ? AND active = 1 AND LOWER(category) <> 'rent'`).bind(recurringId, householdId).first<Row>();
       if (!recurring) return json({ error: "Recurring bill not found" }, 404);
       const participantIds = JSON.parse(String(recurring.participant_ids)) as number[];
       const amountCents = Number(recurring.amount_cents);
