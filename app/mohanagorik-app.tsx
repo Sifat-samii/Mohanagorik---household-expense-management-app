@@ -112,7 +112,7 @@ export default function MohaNagorikApp({ user }:{ user:{name:string;email:string
         <div className="sidebar-footer">
           <div className="profile-avatar">{initials(user.name)}</div>
           <div className="profile-copy"><strong>{user.name.split("@")[0]}</strong><span>{user.email}</span></div>
-          <a className="icon-link" aria-label="Sign out" href="/signout-with-chatgpt?return_to=%2F" target="_top"><LogOut size={17}/></a>
+          <a className="icon-link" aria-label="Sign out" href="/api/auth/logout"><LogOut size={17}/></a>
         </div>
       </aside>
 

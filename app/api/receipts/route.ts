@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { NextRequest, NextResponse } from "next/server";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { getGoogleUser } from "../../google-auth";
 
 async function canAccessExpense(expenseId: string, userId: string) {
   return env.DB!.prepare(`SELECT e.id, e.household_id, e.receipt_key FROM expenses e
@@ -9,7 +9,7 @@ async function canAccessExpense(expenseId: string, userId: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getChatGPTUser();
+  const user = await getGoogleUser();
   if (!user) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   if (!env.DB || !env.BUCKET) return NextResponse.json({ error: "Receipt storage unavailable" }, { status: 503 });
   const form = await request.formData();
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const user = await getChatGPTUser();
+  const user = await getGoogleUser();
   if (!user || !env.DB || !env.BUCKET) return new Response("Not authorized", { status: 401 });
   const expenseId = request.nextUrl.searchParams.get("expenseId") ?? "";
   const expense = await canAccessExpense(expenseId, user.userId);

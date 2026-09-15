@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { NextRequest, NextResponse } from "next/server";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { getGoogleUser } from "../../google-auth";
 
 type Row = Record<string, string | number | null>;
 
@@ -9,7 +9,7 @@ const money = (value: unknown) => Math.max(0, Math.round(Number(value) * 100));
 const textValue = (value: unknown, max = 120) => String(value ?? "").trim().slice(0, max);
 
 async function currentUser() {
-  const user = await getChatGPTUser();
+  const user = await getGoogleUser();
   if (!user) return null;
   const db = env.DB;
   if (!db) throw new Error("Database unavailable");

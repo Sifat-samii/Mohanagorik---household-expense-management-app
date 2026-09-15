@@ -1,10 +1,10 @@
-import { chatGPTSignInPath, getChatGPTUser } from "./chatgpt-auth";
+import { getGoogleUser } from "./google-auth";
 import MohaNagorikApp from "./mohanagorik-app";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const user = await getChatGPTUser();
+  const user = await getGoogleUser();
 
   if (!user) {
     return (
@@ -14,7 +14,7 @@ export default async function Home() {
           <p className="eyebrow">Shared living, simplified</p>
           <h1>Every shared expense.<br />Perfectly clear.</h1>
           <p className="signin-copy">Create a home, invite your people, split anything, and settle up without the awkward maths.</p>
-          <a className="signin-button" href={chatGPTSignInPath("/")} target="_top">Sign in to MohaNagorik</a>
+          <a className="signin-button" href="/api/auth/google">Continue with Google</a>
           <div className="signin-points" aria-label="Included features">
             <span>Flexible splits</span><span>Private households</span><span>Smart settle-up</span>
           </div>
