@@ -25,18 +25,23 @@ async function membership(householdId: string, userId: string) {
     .bind(householdId, userId).first<Row>();
 }
 
-async function householdPayload(householdId: string, userId: string) {
+async function householdPayload(householdId: string, userId: string, selectedMonth: string) {
   const db = env.DB!;
   const member = await membership(householdId, userId);
   if (!member) throw new Error("Household access denied");
 
-  const [home, members, expenses, splits, settlements, recurring] = await Promise.all([
+  const [home, members, expenses, monthlyExpenses, splits, settlements, recurring] = await Promise.all([
     db.prepare(`SELECT id, name, currency, invite_code, owner_id FROM households WHERE id = ?`).bind(householdId).first<Row>(),
     db.prepare(`SELECT id, user_id, display_name, role, joined_at FROM household_members WHERE household_id = ? AND status = 'active' ORDER BY joined_at`).bind(householdId).all<Row>(),
     db.prepare(`SELECT e.id, e.description, e.category, e.amount_cents, e.paid_by_member_id, e.expense_date,
       e.split_type, e.notes, e.receipt_key, e.created_at, m.display_name AS payer_name
       FROM expenses e JOIN household_members m ON m.id = e.paid_by_member_id
       WHERE e.household_id = ? AND e.status = 'active' ORDER BY e.expense_date DESC, e.created_at DESC LIMIT 250`).bind(householdId).all<Row>(),
+    db.prepare(`SELECT e.id, e.description, e.category, e.amount_cents, e.paid_by_member_id, e.expense_date,
+      e.split_type, e.notes, e.receipt_key, e.created_at, m.display_name AS payer_name
+      FROM expenses e JOIN household_members m ON m.id = e.paid_by_member_id
+      WHERE e.household_id = ? AND e.status = 'active' AND substr(e.expense_date, 1, 7) = ?
+      ORDER BY e.expense_date DESC, e.created_at DESC`).bind(householdId, selectedMonth).all<Row>(),
     db.prepare(`SELECT s.expense_id, s.member_id, s.share_cents FROM expense_splits s
       JOIN expenses e ON e.id = s.expense_id WHERE e.household_id = ? AND e.status = 'active'`).bind(householdId).all<Row>(),
     db.prepare(`SELECT s.id, s.from_member_id, s.to_member_id, s.amount_cents, s.settlement_date, s.notes,
@@ -86,15 +91,12 @@ async function householdPayload(householdId: string, userId: string) {
     if (Math.abs(creditors[ci].amountCents) < 2) ci++;
   }
 
-  const currentMonth = new Date().toISOString().slice(0, 7);
   const categoryMap = new Map<string, number>();
   let monthTotalCents = 0;
-  for (const e of expenses.results) {
-    if (String(e.expense_date).startsWith(currentMonth)) {
-      monthTotalCents += Number(e.amount_cents);
-      const category = String(e.category);
-      categoryMap.set(category, (categoryMap.get(category) ?? 0) + Number(e.amount_cents));
-    }
+  for (const e of monthlyExpenses.results) {
+    monthTotalCents += Number(e.amount_cents);
+    const category = String(e.category);
+    categoryMap.set(category, (categoryMap.get(category) ?? 0) + Number(e.amount_cents));
   }
   const categories = [...categoryMap].map(([name, amountCents]) => ({ name, amountCents })).sort((a, b) => b.amountCents - a.amountCents);
   const enrichedExpenses = expenses.results.map((e) => ({
@@ -111,6 +113,8 @@ async function householdPayload(householdId: string, userId: string) {
     recurring: recurring.results,
     balances: balanceRows,
     suggestedSettlements,
+    selectedMonth,
+    monthlyExpenses: monthlyExpenses.results,
     monthTotalCents,
     categories,
   };
@@ -124,8 +128,11 @@ export async function GET(request: NextRequest) {
       FROM households h JOIN household_members hm ON hm.household_id = h.id
       WHERE hm.user_id = ? AND hm.status = 'active' ORDER BY hm.joined_at`).bind(user.userId).all<Row>();
     const householdId = request.nextUrl.searchParams.get("householdId") || String(homes.results[0]?.id ?? "");
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const requestedMonth = request.nextUrl.searchParams.get("month") ?? currentMonth;
+    const selectedMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth) && requestedMonth <= currentMonth ? requestedMonth : currentMonth;
     if (!householdId) return json({ households: homes.results, active: null });
-    return json({ households: homes.results, active: await householdPayload(householdId, user.userId) });
+    return json({ households: homes.results, active: await householdPayload(householdId, user.userId, selectedMonth) });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Unable to load MohaNagorik" }, 500);
   }

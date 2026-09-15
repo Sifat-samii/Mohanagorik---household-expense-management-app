@@ -23,7 +23,7 @@ type Recurring = { id:string; description:string; category:string; amount_cents:
 type ActiveData = {
   household:{id:string;name:string;currency:string;invite_code:string;owner_id:string}; currentMemberId:number;
   members:Member[]; expenses:Expense[]; settlements:Array<Record<string,string|number>>; recurring:Recurring[];
-  balances:Balance[]; suggestedSettlements:Suggestion[]; monthTotalCents:number; categories:Array<{name:string;amountCents:number}>;
+  balances:Balance[]; suggestedSettlements:Suggestion[]; selectedMonth:string; monthlyExpenses:Expense[]; monthTotalCents:number; categories:Array<{name:string;amountCents:number}>;
 };
 type AppData = { households:Array<{id:string;name:string;currency:string;invite_code:string;role:string}>; active:ActiveData|null };
 
@@ -34,8 +34,11 @@ const displayDate = (date:string) => new Intl.DateTimeFormat("en", { day:"numeri
 const initials = (name:string) => name.split(/\s|@/).filter(Boolean).slice(0,2).map((part) => part[0]?.toUpperCase()).join("");
 const formatMoney = (cents:number, currency="BDT") => currency === "BDT" ? `৳${Math.abs(cents / 100).toLocaleString("en-BD", { maximumFractionDigits:2 })}` : new Intl.NumberFormat("en", { style:"currency", currency }).format(Math.abs(cents / 100));
 
-async function api(body?:Record<string,unknown>, householdId?:string): Promise<any> {
-  const response = await fetch(body ? "/api/app" : `/api/app${householdId ? `?householdId=${encodeURIComponent(householdId)}` : ""}`, body ? { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) } : undefined);
+async function api(body?:Record<string,unknown>, householdId?:string, month?:string): Promise<any> {
+  const query = new URLSearchParams();
+  if (householdId) query.set("householdId", householdId);
+  if (month) query.set("month", month);
+  const response = await fetch(body ? "/api/app" : `/api/app${query.size ? `?${query}` : ""}`, body ? { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) } : undefined);
   const result = await response.json() as Record<string, any>;
   if (!response.ok) throw new Error(result.error || "Something went wrong");
   return result;
@@ -44,6 +47,7 @@ async function api(body?:Record<string,unknown>, householdId?:string): Promise<a
 export default function MohaNagorikApp({ user }:{ user:{name:string;email:string} }) {
   const [data, setData] = useState<AppData|null>(null);
   const [activeId, setActiveId] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(today().slice(0, 7));
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
   const [expenseOpen, setExpenseOpen] = useState(false);
@@ -52,15 +56,15 @@ export default function MohaNagorikApp({ user }:{ user:{name:string;email:string
   const [search, setSearch] = useState("");
   const [selectedSuggestion, setSelectedSuggestion] = useState<Suggestion|null>(null);
 
-  const load = useCallback(async (id?:string) => {
+  const load = useCallback(async (id?:string, month = selectedMonth) => {
     try {
       setLoading(true);
-      const result = await api(undefined, id || activeId);
+      const result = await api(undefined, id || activeId, month);
       setData(result);
       if (result.active?.household?.id) setActiveId(result.active.household.id);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to load"); }
     finally { setLoading(false); }
-  }, [activeId]);
+  }, [activeId, selectedMonth]);
 
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -118,8 +122,9 @@ export default function MohaNagorikApp({ user }:{ user:{name:string;email:string
 
       <section className="workspace">
         <header className="topbar">
-          <div><p>{new Intl.DateTimeFormat("en", {month:"long", year:"numeric"}).format(new Date())}</p><h1>{tab === "overview" ? "Good to see you" : tab[0].toUpperCase() + tab.slice(1)}</h1></div>
+          <div><p>{new Intl.DateTimeFormat("en", {month:"long", year:"numeric"}).format(new Date(`${selectedMonth}-01T12:00:00`))}</p><h1>{tab === "overview" ? "Good to see you" : tab[0].toUpperCase() + tab.slice(1)}</h1></div>
           <div className="top-actions">
+            <label className="month-filter"><span>Month</span><Input type="month" value={selectedMonth} max={today().slice(0,7)} onChange={(event)=>{const month=event.target.value;if(month){setSelectedMonth(month);void load(activeId,month);}}}/></label>
             <Button variant="outline" className="settle-button" onClick={() => setSettleOpen(true)}><CircleDollarSign/> Settle up</Button>
             <Button className="add-button" onClick={() => setExpenseOpen(true)}><Plus/> Add expense</Button>
           </div>
@@ -152,7 +157,7 @@ export default function MohaNagorikApp({ user }:{ user:{name:string;email:string
   );
 }
 
-function LoadingScreen() { return <div className="loading-screen"><div className="brand-mark">F</div><RefreshCw className="spin"/><span>Opening your household…</span></div>; }
+function LoadingScreen() { return <div className="loading-screen"><div className="brand-mark">M</div><RefreshCw className="spin"/><span>Opening your household…</span></div>; }
 
 function Onboarding({user,onDone}:{user:{name:string;email:string};onDone:(id:string)=>void}) {
   const [mode,setMode] = useState<"create"|"join">("create"); const [name,setName]=useState(""); const [code,setCode]=useState(""); const [currency,setCurrency]=useState("BDT"); const [busy,setBusy]=useState(false);
@@ -164,9 +169,10 @@ function NavButton({active,onClick,icon,children}:{active:boolean;onClick:()=>vo
 
 function Overview({active,balance,onExpense,onSettle}:{active:ActiveData;balance:number;onExpense:()=>void;onSettle:(s:Suggestion)=>void}) {
   const maxCategory = Math.max(...active.categories.map((c)=>c.amountCents),1);
+  const monthLabel = new Intl.DateTimeFormat("en", {month:"long",year:"numeric"}).format(new Date(`${active.selectedMonth}-01T12:00:00`));
   return <div className="overview-grid"><section className="main-column"><div className={`balance-card ${balance < 0 ? "negative":""}`}><div className="balance-top"><div><p>Your balance</p><strong>{formatMoney(balance,active.household.currency)}</strong><span>{Math.abs(balance)<2?"all settled":balance>0?"you are owed":"you owe"}</span></div><div className="balance-orbit"><span>{balance>=0?<ArrowDownLeft/>:<ArrowUpRight/>}</span></div></div><div className="balance-actions"><button onClick={onExpense}><Plus/>Add an expense</button><button onClick={()=>active.suggestedSettlements[0]&&onSettle(active.suggestedSettlements[0])}><Check/>Record payment</button></div></div>
-  <div className="section-heading"><div><h2>Recent activity</h2><p>{active.expenses.length} recorded expenses</p></div></div><div className="activity-card">{active.expenses.length ? active.expenses.slice(0,5).map((expense)=><ExpenseRow key={expense.id} expense={expense} currency={active.household.currency}/>) : <EmptyState icon={<Receipt/>} title="No expenses yet" copy="Add the first expense and MohaNagorik will calculate every share." action={onExpense}/>}</div></section>
-  <aside className="insight-column"><div className="summary-card"><div className="section-heading"><div><h2>This month</h2><p>Total household spending</p></div><strong>{formatMoney(active.monthTotalCents,active.household.currency)}</strong></div><div className="category-bars">{active.categories.length?active.categories.slice(0,5).map((category)=><div key={category.name}><div><span>{category.name}</span><b>{formatMoney(category.amountCents,active.household.currency)}</b></div><i><em style={{width:`${Math.max(5,category.amountCents/maxCategory*100)}%`}}/></i></div>):<p className="muted">Categories appear after your first expense.</p>}</div></div>
+  <div className="section-heading"><div><h2>{monthLabel} activity</h2><p>{active.monthlyExpenses.length} recorded expenses</p></div></div><div className="activity-card">{active.monthlyExpenses.length ? active.monthlyExpenses.slice(0,5).map((expense)=><ExpenseRow key={expense.id} expense={expense} currency={active.household.currency}/>) : <EmptyState icon={<Receipt/>} title="No expenses this month" copy={`Add an expense dated in ${monthLabel} to see it here.`} action={onExpense}/>}</div></section>
+  <aside className="insight-column"><div className="summary-card"><div className="section-heading"><div><h2>{monthLabel}</h2><p>Total household spending</p></div><strong>{formatMoney(active.monthTotalCents,active.household.currency)}</strong></div><div className="category-bars">{active.categories.length?active.categories.slice(0,5).map((category)=><div key={category.name}><div><span>{category.name}</span><b>{formatMoney(category.amountCents,active.household.currency)}</b></div><i><em style={{width:`${Math.max(5,category.amountCents/maxCategory*100)}%`}}/></i></div>):<p className="muted">Categories appear after your first expense.</p>}</div></div>
   <div className="settle-card"><div className="settle-title"><span><Sparkles/></span><div><h2>Simplest settle-up</h2><p>{active.suggestedSettlements.length?`${active.suggestedSettlements.length} payment${active.suggestedSettlements.length===1?"":"s"} clears the group`:"Nothing to settle"}</p></div></div>{active.suggestedSettlements.slice(0,3).map((s)=><button key={`${s.fromMemberId}-${s.toMemberId}`} onClick={()=>onSettle(s)}><div className="avatar-stack"><span>{initials(s.fromName)}</span><ArrowUpRight/><span>{initials(s.toName)}</span></div><div><b>{s.fromName.split(" ")[0]} → {s.toName.split(" ")[0]}</b><small>{formatMoney(s.amountCents,active.household.currency)}</small></div><ChevronDown className="rotate"/></button>)}</div></aside></div>;
 }
 
