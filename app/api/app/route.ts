@@ -21,7 +21,7 @@ async function currentUser() {
 }
 
 async function membership(householdId: string, userId: string) {
-  return env.DB!.prepare(`SELECT id, household_id, user_id, display_name, role FROM household_members
+  return env.DB!.prepare(`SELECT id, household_id, user_id, display_name, role, avatar_choice, avatar_key FROM household_members
     WHERE household_id = ? AND user_id = ? AND status = 'active'`)
     .bind(householdId, userId).first<Row>();
 }
@@ -33,7 +33,7 @@ async function householdPayload(householdId: string, userId: string, selectedMon
 
   const [home, members, expenses, monthlyExpenses, splits, settlements, recurring, paidTotals, owedTotals, settlementTotals, monthlyPaidTotals, monthlySettlementOutgoing, monthlySettlementIncoming] = await Promise.all([
     db.prepare(`SELECT id, name, currency, invite_code, owner_id FROM households WHERE id = ?`).bind(householdId).first<Row>(),
-    db.prepare(`SELECT id, user_id, display_name, role, joined_at FROM household_members WHERE household_id = ? AND status = 'active' ORDER BY joined_at`).bind(householdId).all<Row>(),
+    db.prepare(`SELECT id, user_id, display_name, avatar_choice, avatar_key, joined_at FROM household_members WHERE household_id = ? AND status = 'active' ORDER BY joined_at`).bind(householdId).all<Row>(),
     db.prepare(`SELECT e.id, e.description, e.category, e.amount_cents, e.paid_by_member_id, e.expense_date,
       e.split_type, e.notes, e.receipt_key, e.created_at, m.display_name AS payer_name
       FROM expenses e JOIN household_members m ON m.id = e.paid_by_member_id
@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
       const inviteCode = crypto.randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase();
       await db.batch([
         db.prepare(`INSERT INTO households (id, name, currency, invite_code, owner_id) VALUES (?, ?, ?, ?, ?)`).bind(id, name, textValue(body.currency, 3) || "BDT", inviteCode, user.userId),
-        db.prepare(`INSERT INTO household_members (household_id, user_id, display_name, role) VALUES (?, ?, ?, 'owner')`).bind(id, user.userId, user.displayName),
+        db.prepare(`INSERT INTO household_members (household_id, user_id, display_name, role) VALUES (?, ?, ?, 'member')`).bind(id, user.userId, user.displayName),
       ]);
       return json({ ok: true, householdId: id });
     }
@@ -196,6 +196,16 @@ export async function POST(request: NextRequest) {
     const householdId = textValue(body.householdId, 80);
     const member = await membership(householdId, user.userId);
     if (!member) return json({ error: "Household access denied" }, 403);
+
+    if (action === "update_avatar_choice") {
+      const avatarChoice = textValue(body.avatarChoice, 20);
+      const allowedChoices = new Set(["indigo", "lime", "sunset", "ocean", "rose", "violet"]);
+      if (!allowedChoices.has(avatarChoice)) return json({ error: "Choose a valid avatar" }, 400);
+      await db.prepare(`UPDATE household_members SET avatar_choice = ?, avatar_key = NULL
+        WHERE id = ? AND user_id = ?`).bind(avatarChoice, member.id, user.userId).run();
+      if (member.avatar_key && env.BUCKET) await env.BUCKET.delete(String(member.avatar_key));
+      return json({ ok: true });
+    }
 
     if (action === "create_expense") {
       const description = textValue(body.description, 100);
@@ -272,6 +282,12 @@ export async function POST(request: NextRequest) {
       const amountCents = Number(recurring.amount_cents);
       const base = Math.floor(amountCents / participantIds.length);
       let remainder = amountCents - base * participantIds.length;
+      const postedAt = new Date().toISOString();
+      const cooldownCutoff = new Date(Date.now() - 15_000).toISOString();
+      const lock = await db.prepare(`UPDATE recurring_expenses SET last_posted_at = ?
+        WHERE id = ? AND household_id = ? AND (last_posted_at IS NULL OR last_posted_at <= ?)`)
+        .bind(postedAt, recurringId, householdId, cooldownCutoff).run();
+      if (Number(lock.meta.changes) !== 1) return json({ error: "Please wait 15 seconds before posting this bill again" }, 429);
       const expenseId = crypto.randomUUID();
       const date = new Date().toISOString().slice(0, 10);
       const due = new Date(String(recurring.next_due_date) + "T00:00:00Z");

@@ -23,6 +23,8 @@ export const householdMembers = sqliteTable("household_members", {
   userId: text("user_id").notNull(),
   displayName: text("display_name").notNull(),
   role: text("role").notNull().default("member"),
+  avatarChoice: text("avatar_choice").notNull().default("indigo"),
+  avatarKey: text("avatar_key"),
   status: text("status").notNull().default("active"),
   joinedAt: text("joined_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex("member_household_user_unique").on(table.householdId, table.userId)]);
@@ -73,6 +75,7 @@ export const recurringExpenses = sqliteTable("recurring_expenses", {
   nextDueDate: text("next_due_date").notNull(),
   participantIds: text("participant_ids").notNull(),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
+  lastPostedAt: text("last_posted_at"),
   createdByUserId: text("created_by_user_id").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
