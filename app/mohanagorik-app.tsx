@@ -41,7 +41,7 @@ async function api(body?:Record<string,unknown>, householdId?:string): Promise<a
   return result;
 }
 
-export default function FairNestApp({ user }:{ user:{name:string;email:string} }) {
+export default function MohaNagorikApp({ user }:{ user:{name:string;email:string} }) {
   const [data, setData] = useState<AppData|null>(null);
   const [activeId, setActiveId] = useState("");
   const [loading, setLoading] = useState(true);

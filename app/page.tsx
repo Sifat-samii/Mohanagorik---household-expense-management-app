@@ -1,5 +1,5 @@
 import { chatGPTSignInPath, getChatGPTUser } from "./chatgpt-auth";
-import FairNestApp from "./fairnest-app";
+import MohaNagorikApp from "./mohanagorik-app";
 
 export const dynamic = "force-dynamic";
 
@@ -29,5 +29,5 @@ export default async function Home() {
     );
   }
 
-  return <FairNestApp user={{ name: user.displayName, email: user.email }} />;
+  return <MohaNagorikApp user={{ name: user.displayName, email: user.email }} />;
 }
