@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
     if (!householdId) return json({ households: homes.results, active: null });
     return json({ households: homes.results, active: await householdPayload(householdId, user.userId) });
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Unable to load FairNest" }, 500);
+    return json({ error: error instanceof Error ? error.message : "Unable to load MohaNagorik" }, 500);
   }
 }
 

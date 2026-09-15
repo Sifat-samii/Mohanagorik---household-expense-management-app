@@ -10,11 +10,11 @@ export default async function Home() {
     return (
       <main className="signin-shell">
         <section className="signin-card">
-          <div className="brand-mark" aria-hidden="true">F</div>
+          <div className="brand-mark" aria-hidden="true">M</div>
           <p className="eyebrow">Shared living, simplified</p>
           <h1>Every shared expense.<br />Perfectly clear.</h1>
           <p className="signin-copy">Create a home, invite your people, split anything, and settle up without the awkward maths.</p>
-          <a className="signin-button" href={chatGPTSignInPath("/")} target="_top">Sign in to FairNest</a>
+          <a className="signin-button" href={chatGPTSignInPath("/")} target="_top">Sign in to MohaNagorik</a>
           <div className="signin-points" aria-label="Included features">
             <span>Flexible splits</span><span>Private households</span><span>Smart settle-up</span>
           </div>

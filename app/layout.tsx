@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FairNest — Shared expenses, made fair",
+  title: "MohaNagorik — Shared expenses, made fair",
   description: "Split household bills, track balances, and settle up without the spreadsheet chaos.",
   icons: {
     icon: "/favicon.svg",
