@@ -35,7 +35,10 @@ export async function POST(request:NextRequest) {
     await env.BUCKET.put(key, upload.buffer, { httpMetadata:{ contentType:upload.contentType } });
     await env.DB.prepare(`UPDATE household_members SET avatar_key = ?, avatar_choice = 'photo'
       WHERE id = ? AND user_id = ?`).bind(key, member.id, user.userId).run();
-    if (member.avatar_key) await env.BUCKET.delete(member.avatar_key);
+    if (member.avatar_key) {
+      try { await env.BUCKET.delete(member.avatar_key); }
+      catch (storageError) { logServerError(request, storageError, "replace-avatar-storage"); }
+    }
     const response = NextResponse.json({ ok:true });
     response.headers.set("Cache-Control", "no-store");
     return response;

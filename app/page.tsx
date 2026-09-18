@@ -1,5 +1,6 @@
 import { getGoogleUser } from "./google-auth";
 import MohaNagorikApp from "./mohanagorik-app";
+import { BrandLogo } from "@/components/brand-logo";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export default async function Home() {
     return (
       <main className="signin-shell">
         <section className="signin-card">
-          <div className="brand-mark" aria-hidden="true">M</div>
+          <div className="landing-brand"><BrandLogo size={64} priority/><strong>MohaNagorik</strong></div>
           <p className="eyebrow">Shared living, simplified</p>
           <h1>Every shared expense.<br />Perfectly clear.</h1>
           <p className="signin-copy">Create a home, invite your people, split anything, and settle up without the awkward maths.</p>

@@ -1,6 +1,6 @@
 # Security and scalability audit
 
-Date: 2026-09-15
+Date: 2026-09-16
 
 ## Resolved in this hardening pass
 
@@ -16,6 +16,11 @@ Date: 2026-09-15
 - API responses containing user data use `Cache-Control: no-store`; private media uses private caching.
 - Security headers now cover CSP, HSTS, framing, MIME sniffing, referrers, browser permissions, and cross-origin isolation.
 - Monetary calculations were extracted into tested deterministic functions.
+- Exact-cent balances are now settled instead of being rounded away in recommendations.
+- Expense and settlement dates are bounded to the member's current local date so hidden future transactions cannot affect balances.
+- Recurring dates use calendar-safe month rollover, validate the active payer and participants, and release the posting lock if persistence fails.
+- Removed expenses can no longer accept or expose receipts, and their stored receipt is cleaned up on removal.
+- Initial data-load failures now show a retryable error state instead of incorrectly opening household onboarding.
 - D1 query indexes were added for membership, expense, split, settlement, recurring, and profile lookups.
 - CI now enforces linting, type checking, calculation tests, a high-severity dependency audit, and a production build.
 - The high-severity dependency advisories reported during the audit were removed from the resolved graph.

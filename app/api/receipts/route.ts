@@ -7,7 +7,7 @@ import { getGoogleUser } from "../../google-auth";
 async function canAccessExpense(expenseId: string, userId: string) {
   return env.DB!.prepare(`SELECT e.id, e.household_id, e.receipt_key FROM expenses e
     JOIN household_members hm ON hm.household_id = e.household_id
-    WHERE e.id = ? AND hm.user_id = ? AND hm.status = 'active'`).bind(expenseId, userId).first<{id:string; household_id:string; receipt_key:string|null}>();
+    WHERE e.id = ? AND e.status = 'active' AND hm.user_id = ? AND hm.status = 'active'`).bind(expenseId, userId).first<{id:string; household_id:string; receipt_key:string|null}>();
 }
 
 export async function POST(request: NextRequest) {
@@ -29,7 +29,10 @@ export async function POST(request: NextRequest) {
     const key = `${expense.household_id}/receipts/${expenseId}-${crypto.randomUUID()}.${upload.extension}`;
     await env.BUCKET.put(key, upload.buffer, { httpMetadata: { contentType: upload.contentType } });
     await env.DB.prepare(`UPDATE expenses SET receipt_key = ? WHERE id = ? AND household_id = ?`).bind(key, expenseId, expense.household_id).run();
-    if (expense.receipt_key && expense.receipt_key !== key) await env.BUCKET.delete(expense.receipt_key);
+    if (expense.receipt_key && expense.receipt_key !== key) {
+      try { await env.BUCKET.delete(expense.receipt_key); }
+      catch (storageError) { logServerError(request, storageError, "replace-receipt-storage"); }
+    }
     const response = NextResponse.json({ ok: true });
     response.headers.set("Cache-Control", "no-store");
     return response;

@@ -17,6 +17,11 @@ export const households = sqliteTable("households", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const householdCreationCooldowns = sqliteTable("household_creation_cooldowns", {
+  userId: text("user_id").primaryKey(),
+  lockedUntil: text("locked_until").notNull(),
+});
+
 export const householdMembers = sqliteTable("household_members", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   householdId: text("household_id").notNull(),
@@ -25,6 +30,7 @@ export const householdMembers = sqliteTable("household_members", {
   role: text("role").notNull().default("member"),
   avatarChoice: text("avatar_choice").notNull().default("indigo"),
   avatarKey: text("avatar_key"),
+  applicableCategories: text("applicable_categories"),
   status: text("status").notNull().default("active"),
   joinedAt: text("joined_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [

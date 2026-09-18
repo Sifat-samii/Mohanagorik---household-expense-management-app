@@ -7,6 +7,18 @@ export type BalanceInput = {
 export type MoneyByMember = { memberId: number; amountCents: number };
 export type SettlementInput = { fromMemberId: number; toMemberId: number; amountCents: number };
 
+export function addMonthsClamped(dateValue: string, months: number) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue);
+  if (!match || !Number.isInteger(months) || months < 1) throw new Error("Invalid recurring date");
+  const [, yearValue, monthValue, dayValue] = match;
+  const year = Number(yearValue), month = Number(monthValue) - 1, day = Number(dayValue);
+  const source = new Date(Date.UTC(year, month, day));
+  if (source.getUTCFullYear() !== year || source.getUTCMonth() !== month || source.getUTCDate() !== day) throw new Error("Invalid recurring date");
+  const targetMonthStart = new Date(Date.UTC(year, month + months, 1));
+  const lastTargetDay = new Date(Date.UTC(targetMonthStart.getUTCFullYear(), targetMonthStart.getUTCMonth() + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(targetMonthStart.getUTCFullYear(), targetMonthStart.getUTCMonth(), Math.min(day, lastTargetDay))).toISOString().slice(0, 10);
+}
+
 export function splitEqually(amountCents: number, participantIds: number[]) {
   if (!Number.isSafeInteger(amountCents) || amountCents < 1) throw new Error("Amount must be a positive number of cents");
   const ids = [...new Set(participantIds)].filter(Number.isSafeInteger).sort((a, b) => a - b);
@@ -34,8 +46,8 @@ export function calculateBalances(
 }
 
 export function simplifySettlements(balances: Array<BalanceInput & { amountCents: number }>) {
-  const debtors = balances.filter((row) => row.amountCents < -1).map((row) => ({ ...row })).sort((a, b) => a.amountCents - b.amountCents);
-  const creditors = balances.filter((row) => row.amountCents > 1).map((row) => ({ ...row })).sort((a, b) => b.amountCents - a.amountCents);
+  const debtors = balances.filter((row) => row.amountCents < 0).map((row) => ({ ...row })).sort((a, b) => a.amountCents - b.amountCents);
+  const creditors = balances.filter((row) => row.amountCents > 0).map((row) => ({ ...row })).sort((a, b) => b.amountCents - a.amountCents);
   const result: Array<{ fromMemberId: number; fromName: string; toMemberId: number; toName: string; amountCents: number }> = [];
 
   let debtorIndex = 0;
@@ -53,8 +65,8 @@ export function simplifySettlements(balances: Array<BalanceInput & { amountCents
     });
     debtor.amountCents += amountCents;
     creditor.amountCents -= amountCents;
-    if (Math.abs(debtor.amountCents) < 2) debtorIndex++;
-    if (Math.abs(creditor.amountCents) < 2) creditorIndex++;
+    if (debtor.amountCents === 0) debtorIndex++;
+    if (creditor.amountCents === 0) creditorIndex++;
   }
   return result;
 }

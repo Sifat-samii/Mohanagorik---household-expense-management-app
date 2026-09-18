@@ -22,6 +22,20 @@
       "when": 1789502975894,
       "tag": "0002_bizarre_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789595487303,
+      "tag": "0003_spicy_rhino",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789596944411,
+      "tag": "0004_wet_spyke",
+      "breakpoints": true
     }
   ]
 }
